@@ -1,0 +1,145 @@
+---
+title: "Prediction Assignment Write Up"
+author: "John Mastapeter"
+date: "11/18/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+## Prelimary Steps
+
+In order to preform any kind of predictive analysis, the necessary R libraies must be loaded and the online data downloaded and scraped of uncessary data prior to the making the calculations.
+
+## Libraries
+
+```{r necessary libraries}
+#Please download the following libraries to complete the code;
+library(RCurl)
+library(knitr)
+library(caret)
+library(rattle)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+```
+
+## Set Working Directory and Download Data
+
+Set pre-established working directory to save data.
+
+```{r setwd and download}
+#Set working directory
+setwd("C:/Users/mastapeterj/Documents/Coursera_DataScience/PredictionAssignmentWriteUp")
+#download files
+#pml testing
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pmltraining.csv", method = "libcurl")
+#pml training
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pmltesting.csv", method = "libcurl")
+#Read data into R
+trainingpml <- read.csv("pmltraining.csv")
+testingpml <- read.csv("pmltesting.csv")
+#Review Data
+training_head <-head(trainingpml)
+testing_head <-head(testingpml)
+#If interested or necessary, print review of data
+#training_head
+#testing_head
+```
+
+##Cleaning the Data
+```{r clean data}
+#set seed
+set.seed(12345)
+#Set up initial training partition to use during analysis
+inTrain <- createDataPartition(trainingpml$classe, p = 0.7, list = FALSE)
+train_set <- trainingpml[inTrain, ]
+test_set <- trainingpml[-inTrain, ]
+dim(train_set)
+dim(test_set)
+
+#Remove all Near Zero Values whicch will not affect the analysis
+nzvs <- nearZeroVar(train_set)
+train_set <- train_set[, -nzvs]
+test_set <- test_set[, -nzvs]
+dim(train_set)
+dim(test_set)
+
+#Remoove all NA values that will not affect the analysis
+allna <- sapply(train_set, function(x) mean(is.na(x))) > 0.95
+train_set <- train_set[, allna==FALSE]
+test_set <- test_set[, allna==FALSE]
+dim(train_set)
+dim(test_set)
+
+#Remove the first through fifth columns, as they add no valuable information for analysis
+train_set <- train_set[, -(1:5)]
+test_set <- test_set[, -(1:5)]
+dim(train_set)
+dim(test_set)
+```
+
+##Determine Correlation through Fixed Point Clustering
+```{r FPC Plot}
+cor_Matrix <- cor(train_set[,-54])
+corrplot(cor_Matrix, order = "FPC", method = "color", type = "lower", tl.cex = 0.8, tl.col=rgb(0 ,0 ,0))
+```
+
+##Determine correlation through Random Forests
+```{r Ranndom Forest Plot}
+set.seed(12345)
+control_rf <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+modfit_randforest <- train(classe ~., data=train_set, method = "rf", trControl = control_rf)
+modfit_randforest$finalModel
+
+predict_randforest <- predict(modfit_randforest, newdata = test_set)
+confmat_randforest <- confusionMatrix(predict_randforest, test_set$classe)
+confmat_randforest
+plot(confmat_randforest$table, col= confmat_randforest$byClass, main = paste("Random Forest - Accuracy=", round(confmat_randforest$overall['Accuracy'], 4)))
+```
+
+##Determine correlation through Decision Tree
+```{r Decision Tree Plot}
+set.seed(12345)
+modfit_dectree <- rpart(classe~., data = train_set, method = "class")
+fancyRpartPlot((modfit_dectree))
+
+predict_dectree <-predict(modfit_dectree, newdata = test_set, type = "class")
+confmat_dectree <- confusionMatrix(predict_dectree, test_set$classe)
+confmat_dectree
+
+plot(confmat_dectree$table, col = confmat_dectree$byClass, main = paste("Decision Tree - Accuracy = ", round(confmat_dectree$overall['Accuracy'], 4)))
+```
+
+##Determine correlation through Generalilzed Boosted Model
+```{r Generalied Boosted Model}
+set.seed(12345)
+control_gbm <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modfit_gbm <- train(classe~., data = train_set, method = "gbm", trControl = control_gbm, verbose = FALSE)
+modfit_gbm$finalModel
+
+predict_gbm <- predict(modfit_gbm, newdata = test_set)
+confmat_gbm <- confusionMatrix(predict_gbm, test_set$classe)
+confmat_gbm
+
+plot(confmat_gbm$table, confmat_gbm$byClass, main = paste("GBM - Accuracy = ", round(confmat_gbm$overall['Acccuracy'], 4)))
+```
